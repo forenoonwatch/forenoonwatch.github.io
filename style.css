@@ -1,0 +1,140 @@
+* {
+	box-sizing: border-box;
+}
+
+html {
+	background: #8AB;
+	color: #000;
+}
+
+body {
+	background-color: #FFF;
+	color: #000;
+	width: 80%;
+	margin-left: auto;
+	margin-right: auto;
+	margin-top: 16px;
+	margin-bottom: 4px;
+	padding-top: 2em;
+	padding-left: 2%;
+	padding-right: 2%;
+	padding-bottom: 2%;
+	border: 2px solid black;
+}
+
+h1 {
+	text-align: center;
+	padding-bottom: 0.2em;
+	padding-top: 0.1em;
+}
+
+h3 {
+	margin-top: 0px;
+	background: #BEF;
+	color: #000;
+	margin-bottom: 4px;
+}
+
+@media (max-width:1060px) {
+	h1 {
+		font-size: 140%;
+	}
+}
+
+.layoutbox {
+	float: left;
+	width: 50%;
+	background: transparent;
+	padding: 0px;
+}
+
+.box {
+	border: 1px solid #AAD;
+	margin-top: 5px;
+	margin-left: 5px;
+	margin-right: 5px;
+	margin-bottom: 8px;
+	background-color: #FFF;
+	color: #000;
+}
+
+.box p {
+	margin-left: 5px;
+	margin-right: 5px;
+}
+
+.box a {
+	margin-left: 5px;
+	margin-right: 5px;
+}
+
+.box h4 {
+	margin-left: 5px;
+}
+
+.box h5 {
+	margin-top: 10px;
+	margin-bottom: 0px;
+	margin-left: 5px;
+}
+
+.projectlist {
+	list-style-type: none;
+	padding-left: 0px;
+}
+
+.projectlist li {
+	background: #F2FCFF;
+	display: flex;
+	padding: 5px;
+	flex-flow: row nowrap;
+}
+
+.projectlist li:nth-child(odd) {
+	background: #D9F6FF;
+}
+
+.projectlist h4 {
+	padding-top: 0px;
+	padding-bottom: 0px;
+	margin: 0px;
+}
+
+.projectlist a {
+	margin: 0px;
+}
+
+.blogstrip {
+	background-color: #fff;
+	width: 100%;
+	height: 100px;
+	margin-top: -5px;
+}
+
+.projecticon {
+	background-color: #aaa;
+	width: 48px;
+	height: 48px;
+	flex-shrink: 0;
+	margin-right: 5px;
+	border: 1px solid #AAD;
+}
+
+.projectdesc p {
+	margin: 0px;
+	font-size: smaller;
+}
+
+.main {
+	border: 1px solid #AAD;
+	padding: 0px 30px 10px 30px;
+	background-color: #FFF;
+	color: #000;
+	display: inline-block;
+}
+
+@media screen and (max-width: 1412px) {
+	.layoutbox {
+		width: 100%;
+	}
+}
