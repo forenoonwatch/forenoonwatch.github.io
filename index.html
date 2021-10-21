@@ -54,6 +54,15 @@
 								</div>
 							</li>
 							<li>
+								<img class="projecticon" src="images/console_images_thumb.png">
+								<div class="projectdesc">
+									<h4><a href="#console_images">Drawing Outside the Lines II - Console Images</a></h4>
+									<p>
+									Rendering images and GIFs in windows cmd.exe.
+									</p>
+								</div>
+							</li>
+							<li>
 								<img class="projecticon" src="images/block_systems_thumb.png">
 								<div class="projectdesc">
 									<h4><a href="https://github.com/forenoonwatch/block-systems">Block Systems</a></h4>
@@ -78,7 +87,6 @@
 						Some of my upcoming projects, mostly a planner for myself more than anything.
 						<h4>Console Rendering</h4>
 						<ul>
-							<li>Images and GIFs</li>
 							<li>OpenGL &amp; Vulkan</li>
 						</ul>
 						<h4>Game Engine Programming</h4>
@@ -190,6 +198,27 @@
 								</ul>
 							</li>
 						</ul>
+					</div>
+				</div>
+			</div>
+			<div class="layoutbox">
+				<div class="box">
+					<div class="box" id="console_images">
+						<h3>Drawing Outside the Lines II - Console Images</h3>
+						<img class="blogstrip" src="images/console_images_blog_strip.png">
+						<h5>October 21, 2021</h5>
+						<h4>Background</h4>
+						<p>Ever since I started programming C++ back in my freshman year of high school, I wanted to be able to manipulate graphics in the console. Most C++ programming courses begin and end with user I/O handled through <code>std::cin</code> and <code>std::cout</code>, with no mention of graphics or even alternate text colors. During my time in that course, "Programming in C++", I would spend extra time when I got home from school digging through the Windows API documentation and finding functions like <code>SetConsoleTextAttribute</code>, <code>SetConsoleCursorPosition</code>, and <code>GetAsyncKeyState</code> which allowed me to use cmd as a rudimentary window for making actual interactive games. In fact, for my final project I implemented Battleship with 16 color text-block rendering and full mouse and keyboard support. Pictured is the title screen of the game as it appears today, and sadly it is mostly nonfunctional on Windows 10.</p>
+						<a href="images/console_images_blog_1.png" title="Click for full size image"><img src="images/console_images_blog_1.png" width="200"></a>
+						<p>Even back then, through my searching for ways to render on the console, I had seen discussion on using <code>SetPixel</code> on the console window, but at the time I did not understand what I was doing well enough to make it work. Recently however, I decided on a whim to try again, and managed to manipulate the console's pixels, and with further experimentation I was even able to draw bitmaps.</p>
+						<h4>Implementation</h4>
+						<p>The fundamental mechanics behind rendering an image to the console are acquiring a GDI Device Context handle (HDC) to the console window, and creating Device Independent Bitmaps (DIB) to render to the screen. Getting the console HDC is a simple matter of acquiring the console window handle (HWND) via <code>FindWindowA("ConsoleWindowClass", NULL)</code>, and getting its context via the GDI function <code>GetDC</code>.</p>
+						<p>With the console's HDC you must then create a compatible device context to be used for each bitmap via <code>CreateCompatibleDC</code>. This HDC is the handle to the context of the bitmap you will create, and is used for both creating the bitmap and actually rendering it to the console window. With a correctly configured bitmap header, you can then create a device indepentent bitmap for your image with <code>CreateDIBSection</code>. This function leaves you with a <code>void*</code> pointer to the memory for the bitmap, which can be filled with image data acquired by any means. (more detail provided in<a href="https://github.com/forenoonwatch/console-images/blob/master/src/graphic.cpp">graphic.cpp</a>).</p>
+						<p>For this project, I opted to use<a href="https://github.com/nothings/stb/blob/master/stb_image.h">STB Image,</a>as it is a lightweight and convenient solution for loading still images and animated GIFs. To get the data in a format compatible with the DIB, the images must be flipped vertically and have their RGB data reordered to BGR. The GIF animation is handled by copying a given frame's image data into the bitmap memory based on the frame delay timings read from the GIF.</p>
+						<p>To actually draw the image to the screen, the function <code>StretchBlt</code> is used, which can resize any sized image to fit in a convenient size for the console, which I have set to a height constraint of 10 console lines.</p>
+						<a href="images/console_images_blog_2.gif" title="Click to see full size image"><img src="images/console_images_blog_2.gif" width="400"></a>
+						<h4>Repository Link</h4>
+						<a href="https://github.com/forenoonwatch/console-images">GitHub - Console Images</a>
 					</div>
 				</div>
 			</div>
