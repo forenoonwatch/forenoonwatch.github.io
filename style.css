@@ -125,6 +125,18 @@ h3 {
 	font-size: smaller;
 }
 
+.blogimgsmall {
+	min-width: 1px;
+	max-width: 200px;
+	height: auto;
+}
+
+.blogimglarge {
+	min-width: 1px;
+	max-width: 400px;
+	height: auto;
+}
+
 .main {
 	border: 1px solid #AAD;
 	padding: 0px 30px 10px 30px;
@@ -138,3 +150,16 @@ h3 {
 		width: 100%;
 	}
 }
+
+@media screen and (max-width: 1000px) {
+	body {
+		margin: 0px;
+		padding: 0px;
+	}
+
+	main {
+		margin: 0px;
+		padding: 0px;
+	}
+}
+
