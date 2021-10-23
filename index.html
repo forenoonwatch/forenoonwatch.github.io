@@ -63,6 +63,15 @@
 								</div>
 							</li>
 							<li>
+								<img class="projecticon" src="images/roblox_ocean_thumb.png">
+								<div class="projectdesc">
+									<h4><a href="#roblox_ocean">Drawing Outside the Lines III - ROBLOX Ocean</a></h4>
+									<p>
+									Generating a dynamic ocean on a popular block game.
+									</p>
+								</div>
+							</li>
+							<li>
 								<img class="projecticon" src="images/block_systems_thumb.png">
 								<div class="projectdesc">
 									<h4><a href="https://github.com/forenoonwatch/block-systems">Block Systems</a></h4>
@@ -203,6 +212,40 @@
 			</div>
 			<div class="layoutbox">
 				<div class="box">
+					<div class="box" id="roblox_ocean">
+						<h3>Drawing Outside the Lines III - ROBLOX Ocean</h3>
+						<img class="blogstrip" src="images/roblox_ocean_blog_strip.png">
+						<h5>October 23, 2021</h5>
+						<h4>Background</h4>
+						<p><a href="https://roblox.com">ROBLOX</a>is a popular online game platform and game engine, best known for the fact that until relatively recently, games made within this engine must be comprised entirely out of LEGO-like blocks. This changed when ROBLOX added support for importing static and eventually skinned meshes (i.e. rigged for animation). Through this new mechanic, it became possible to create a much more realistic and performant simulation of an ocean than was previously possible.</p>
+						<p>My experimentation with implementing ocean rendering in OpenGL is documented in a<a href="#ocean_rendering">previous post</a>and forms the background knowledge I had coming into this project.</p>
+						<h4>Constraints</h4>
+						<p>Programming in ROBLOX is done through their superset of Lua 5.1 called Luau, which runs in a single thread. There is no GPU/shader access available to the user, and no ability to query or modify mesh vertex data. However, there is the ability to import meshes with animation bones whose positions are scriptable. Via profiling, setting the transformation of the bones is the single most expensive operation in this project, at approximately 4ms to set the <code>Position</code> property of 2304 (48^2) bones, and 2ms to set the <code>Transform</code> property on my machine. In addition, the following relevant constraints are present:</p>
+						<ol>
+							<li>The limit of bones per imported mesh is approximately 3000</li>
+							<li>The size limit for a single Part (including MeshParts) is 2048 studs per axis</li>
+							<li>There is a significant cost to the creation of new instances in game</li>
+							<li>There is a somewhat significant cost to repositioning large numbers of Parts in a single frame</li>
+						</ol>
+						<h4>World Model</h4>
+						<p>The basis of the ocean's world model is a square plane mesh subdivided into a grid, with a bone on each vertex weighted to solely move that vertex. This mesh was generated programmatically with Python in Blender, and then imported into ROBLOX. Several different tile densities were experimented with, all in powers of 2, including 8x8, 16x16, 32x32, and 48x48. Due to constraint 1, sizes above 48x48 were not tried, as 64x64 was too large to import.</p>
+						<a href="images/roblox_ocean_blog_1.png" title="Click for full size image"><img width="200" src="images/roblox_ocean_blog_1.png"></a>
+						<p>Since setting bone transforms is so expensive, optimizing the bones visible and updated in the viewport was crucial. My initial attempt was with the<a href="#ocean_rendering_world_model">projected grid</a>utilized in my OpenGL ocean. While this was both efficient and somewhat successful, it suffered from 2 major pitfalls: constraints 1 and 2. The ocean part, which was fit into the camera frustum, could not extend beyond 2048 studs from the camera, which in ROBLOX scaling was nowhere near far enough to reach the far clipping plane. In addition, the low vertex resolution of the mesh caused the artifacts from the projected grid to be very significant, especially towards the far edge of the mesh.</p>
+						<p>The solution to these problems was to modify the method into a top-down projected grid. The world is divided into axis-aligned cells, and mesh tiles are dynamically placed in the cells intersecting with the camera frustum. Since there are now multiple, fixed size cells, they can extend further towards the far clipping plane and maintain shape without causing artifacts. To mitigate constraint 3, these cells were kept in a pool and cycled out as infrequently as possible.</p>
+						<a href="images/roblox_ocean_blog_2.png" title="Tile view - Click for full size image"><img width="200" src="images/roblox_ocean_blog_2.png"></a>
+						<a href="images/roblox_ocean_blog_3.png" title="Tiles from the outside - Click for full size image"><img width="200" src="images/roblox_ocean_blog_3.png"></a>
+						<h4>Waveform</h4>
+						<p>Much like with the world model, my initial attempt stemmed from my OpenGL solutions, and I briefly experimented with implementing a Lua version of the Tessendorf waves, complete with a single threaded FFT implementation. This was unsurprisingly, much too inefficient to be useful. After some stumbling, the most efficient and surprisingly-functional solution turned out to be a modification of Gerstner waves I will refer to as Interpolated Gerstner. Gerstner waves are implemented by iterating over a table of wave data containing amplitude, frequency, and direction, and performing a simple sum of sines at every point of interest. With low numbers of waves and points of interest, this method can be quite performant even with a single threaded CPU implementation. It also comes with the bonus that waves do not necessarily have to be generated with a common base frequency to ensure tileability, as they can be computed per-point.</p>
+						<p>Unfortunately, Gerstner waves alone are still not performant enough to use on their own in ROBLOX, so the solution is to simply divide up the total computations needing to be done for the waves among several frames. The ocean is divided up such that every cell gets updated approximately once every 20 frames, with the Gerstner position calculated for its position at <code>t+20</code> frames. Every frame, each visible point is interpolated from its current position towards its calculated future position. This functions surprisingly accurately, and saves significant calculation time overall.</p>
+						<h4>Additional Optimization</h4>
+						<p>With the above methods, the main issue to contend with in order to reach peak performance is to minimize wasted calculations on wave displacement, as well as maximize the tile size to reduce the effects of constraint 4, all while keeping the overall bone density as tight as possible to maximize visual acuity. In order to reach this goal, the tile MeshParts are split into further subdivided "virtual" tiles, which are culled by the camera frustum, allowing larger parts to be used while also culling more superfluous bones.</p>
+						<p>To further maximize efficiency, bone displacement beyond a maximum distance is interpolated down to 0, and completely flat tiles are placed beyond them, to allow the dynamic ocean to blend into a far away static plane.</p>
+						<a href="images/roblox_ocean_blog_4.gif" title="Click for full size image"><img width="400" src="images/roblox_ocean_blog_4.gif"></a>
+					</div>
+				</div>
+			</div>
+			<div class="layoutbox">
+				<div class="box">
 					<div class="box" id="console_images">
 						<h3>Drawing Outside the Lines II - Console Images</h3>
 						<img class="blogstrip" src="images/console_images_blog_strip.png">
@@ -252,7 +295,7 @@
 						<h4>Waveform</h4>
 						<p>One of the most fundamental aspects of a realistic ocean is its shape, which is determined by a simulation of its many compounding waves. There are several methods to accomplish this, with some of the most popular being either Gerstner waves, or Jerry Tessendorf's method of applying an inverse Fourier transform to a grid of wave data in the frequency domain, which to my knowledge does not have as slick of a name, so I will henceforth refer to it as Tessendorf waves.</p>
 						<p>For my simulation, I chose Tessendorf waves over Gerstner waves, as Gerstner waves require a much slower, iterative calculation of waveforms comprised of multiplying and summing sine waves for each point of interest. While this is quite intuitive and simple to implement, it is not as efficient for the large number of waves required to make an ocean look realistic. Tessendorf's method provides an obvious optimization to summing sine waves, which is to utilize the Fast Fourier Transform (FFT) and apply it to a set of wave data in the frequency domain. Listed in his<a href="https://people.cs.clemson.edu/~jtessen/reports/papers_files/coursenotes2004.pdf">paper</a>is a realistic-looking ocean wave frequency model called the Phillips spectrum, which provides a conveniently tileable set of waves in an nxn grid.</p>
-						<h4>World Model</h4>
+						<h4 id="ocean_rendering_world_model">World Model</h4>
 						<p>Since the ocean is very large, and often in the context of a game, essentially infinite, various tricks have to be utilized to only render the parts of the ocean relevant to the observer. Ideally, this means rendering no more than what is in the viewport. While multiple methods exist for this, with varying trade-offs between efficiency and detail, I chose Claes Johanson's<a href="https://fileadmin.cs.lth.se/graphics/theses/projects/projgrid/projgrid-hq.pdf">projected grid</a>method. This method takes a grid of vertices and projects them with a smooth, continuous level-of-detail onto the intersection of the camera frustum and the ocean plane. This results in extremely efficient utilization of rendered geometry.</p>
 						<a href="images/ocean_rendering_blog_1.png" title="Click to see full size image"><img src="images/ocean_rendering_blog_1.png" width="200"></a>
 						<h4>Lighting</h4>
