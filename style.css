@@ -10,7 +10,7 @@ html {
 body {
 	background-color: #FFF;
 	color: #000;
-	width: 80%;
+	width: 50%;
 	margin-left: auto;
 	margin-right: auto;
 	margin-top: 16px;
@@ -43,7 +43,7 @@ h3 {
 
 .layoutbox {
 	float: left;
-	width: 50%;
+	width: 100%;
 	background: transparent;
 	padding: 0px;
 }
@@ -153,8 +153,7 @@ h3 {
 
 @media screen and (max-width: 1000px) {
 	body {
-		margin: 0px;
-		padding: 0px;
+		width: 100%;
 	}
 
 	main {

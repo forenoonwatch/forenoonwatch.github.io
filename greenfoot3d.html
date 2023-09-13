@@ -1,0 +1,28 @@
+<!doctype html>
+
+<html>
+	<head>
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<meta charset="utf-8">
+		<title>The Forenoon Watch</title>
+		<link rel="shortcut icon" href="images/favicon.ico">
+		<link rel="stylesheet" type="text/css" href="style.css">
+	</head>
+	<body>
+		<div class="box">
+			<h3>Drawing Outside the Lines I - Greenfoot 3D</h3>
+			<img class="blogstrip" src="images/greenfoot3d_blog_strip.png">
+			<h5>October 20, 2021</h5>
+			<h4>Introduction</h4>
+			<p>Around sophomore year of high school, in Java class, I wrote a 3D software rendering extension to the 2D educational "game engine"<a href="https://www.greenfoot.org/door">Greenfoot.</a>It is perhaps my first instance of attempting to "draw outside the lines" and render things where they don't belong. The original intent was to use it for the final project, which was to make a game with a group of people, but I discarded that idea pretty quickly since making a 3D game from scratch in a few weeks is a much taller order than making a barebones rendering engine. The engine features scanline-rasterized triangles, depth buffering, texture sampling, as well as various attempts at handy game engine features such as AABB colliders, billboard renderers, camera controllers, and sound emitters.</p>
+			<a href="images/greenfoot3d_blog_1.png" title="Normal Greenfoot - Click to see full size image"><img src="images/greenfoot3d_blog_1.png" class="blogimgsmall"></a>
+			<a href="images/greenfoot3d_blog_2.png" title="Greenfoot 3D - Click to see full size image"><img src="images/greenfoot3d_blog_2.png" class="blogimgsmall"></a>
+			<h4>Implementation</h4>
+			<p>The fundamental mechanic which allows the engine to even be possible is the API function <code>GreenfootImage.getAwtImage()</code> which exposes access to the underlying BufferedImage. With access to the BufferedImage, I can access its buffer as an integer array and perform very fast writes of pixel data. The core of the rendering engine is implemented by setting the background of the game to be a special GreenfootImage subclass called RenderContext, through which I perform most of the triangle rasterization log and pixel manipulation logic, which ultimately gets stored in the image buffer.</p>
+			<p>Unfortunately, the biggest drawback is that the underlying Actor system within Greenfoot cannot be used in conjunction with the 3D engine, partially due to the fact that the entirety of the game is being rendered on the world background. This resulted in the implementation of the GameObject and GameComponent classes, in order to make my own actor system in place of Greenfoot's.</p>
+			<a href="images/greenfoot3d_blog_3.gif" title="Greenfoot 3D - Click to see full size image"><img src="images/greenfoot3d_blog_3.gif" class="blogimglarge"></a>
+			<h4>Repository Link</h4>
+			<a href="https://github.com/forenoonwatch/Greenfoot3D">GitHub - Greenfoot3D</a>
+		</div>
+	</body>
+</html>
