@@ -1,0 +1,241 @@
+<!doctype html>
+
+<html>
+	<head>
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<meta charset="utf-8">
+		<title>The Forenoon Watch</title>
+		<link rel="shortcut icon" href="images/favicon.ico">
+		<link rel="stylesheet" type="text/css" href="style.css">
+	</head>
+	<body>
+		<div class="box">
+			<h3>Text Editing For Games</h3>
+			<img class="blogstrip" src="images/console_images_blog_strip.png">
+			<h5>September 13, 2023</h5>
+			<h4>Overview</h4>
+			<p>
+				Text rendering is a complex problem. Nearly all games require some level of text rendering, and most get by through the combination of good support libraries and limiting the scope of what kinds of text they need rendered.
+				Often, this involves limiting their game to just 1 locale, and either severely limiting or entirely omitting text editing capabilities.
+			</p>
+			<p>
+				However, there are cases when one might want the ability to interactively edit text with the full capacity you would expect out of basic text editor programs, including support for whatever characters the user might throw at you.
+				This is especially important for things like a chat box in a multiplayer game, or text boxes in an editor panel, both cases where arbitrary text from many locales could potentially be presented in your program.
+			</p>
+			<p>
+				This article covers my exploration into making text editor support for my game engine, and a detailed exploration into the details of what is commonly accepted as basic text editing controls in popular editors.
+			</p>
+			<h4>Design Goals</h4>
+			<p>
+				In my personal game engine project I want to be able to display and edit text in as many languages as possible, with full mouse, keyboard, IME, and clipboard support for selecting text. In addition, I want to support "rich text" features,
+				such as being able to color, underline, strikeout, embolden, or italicize text, either via parsing in-text markup, or via other sources of highlighting rules like code syntax highlighting. All of this must operate on UTF8 text, and function
+				equivalently on amd64 Windows and Linux systems. It must also be fast and easy to integrate with my game engine's rendering pipeline.
+			</p>
+			<p>
+				Stretch Goal: I would like to support<a href="https://github.com/Chlumsky/msdfgen">Multichannel Signed Distance Fields (MSDF)</a>and maintain crisp text when it is projected into a 3D world.
+			</p>
+			<h4>Prior Work</h4>
+			<p>
+				It's impossible to discuss text without mentioning the two seminal works<a href="https://faultlore.com/blah/text-hates-you/">Text Rendering Hates You</a>and<a href="https://lord.io/text-editing-hates-you-too/">Text Editing Hates You Too.</a>
+				These articles do an amazing job at classifying most of the issues you would encounter when trying to deal with text rendering on your own, and have been pivotal for the design of my own tests. They describe many of the concepts I mention
+				much better than I ever could, and are strongly recommended as prerequisites for this article.
+			</p>
+			<p>
+				<a href="https://utf8everywhere.org/">UTF-8 Everywhere</a> is a great manifesto on the benefits of UTF-8 encoding, and covers a lot of useful topics and definitions related to Unicode and its handling in code.
+			</p>
+			<p>
+				There are plenty of full-featured text rendering libraries out there, including open source libraries like<a href="https://pango.gnome.org/">Pango</a> or<a href="https://github.com/silnrsi/graphite">Graphite,</a>which are the majority of my focus.
+				Surprisingly, text editing support does not exist within these libraries, and so text editing support is much less available to "plug n' play" compared to text layout and rendering. My goal is not to implement a text editor completely from scratch,
+				but simply to cover the gap where a ubiquitous open source solution just doesn't seem to exist.
+			</p>
+			<h4>Part 1 - Text Layout</h4>
+			<p>
+				Before starting this project, my initial text rendering implementation was built on top of<a href="https://freetype.org/">FreeType,</a><a href="">which provided me with the ability to retrieve and rasterize glyphs from TrueType fonts,
+				and<a href="https://harfbuzz.github.io/">HarfBuzz,</a>a widely popular library used for text shaping, which is selecting glyphs and calculating their positions for displaying a given line of text. These libraries are very powerful, however
+				the limitation of HarfBuzz is that it is only able to calculate the layout of a run of text for a single direction, script, and language. It also has no support for inserting line and paragraph breaks, and each block of text is shaped as a
+				single line.
+			</p>
+			<p>
+				When working with full Unicode text, finding the proper position in a line to insert a soft break becomes complicated quickly. In order to help solve this, I began researching the capabilities
+				of<a href="https://icu.unicode.org/">International Components for Unicode (ICU),</a>the official Unicode Organization support library, which I found implemented a WordBreakIterator and LineBreakIterator that I could potentially use to
+				implement my own line breaking. Better still, ICU came with a library (LayoutEx) specifically designed for handling paragraph layout.
+			</p>
+			<p>
+				Overall, ICU and the utilities from LayoutEx turned out to be exactly what I was looking for, and allowed me to implement multi-script bidirectional font rendering fairly easily. However, there are plenty of quirks and limitations with
+				implementing ICU, which I will document here:
+			</p>
+			<ul>
+				<li>The layout library which LayoutEx depends on was deprecated and removed. You must replace it with<a href="https://github.com/harfbuzz/icu-le-hb">icu-le-hb,</a>which is an implementation of the ICU LayoutEngine built on top of HarfBuzz.</li>
+				<li>
+					The user needs to provide an implementation of <code>icu::LEFontInstance</code> in order to interface with the layout engine. Per ICU's example, it seems that best practice is to provide 2 different subclasses of LEFontInstance:
+					a top level MultiScriptFont with an overridden getSubFont method in order to provide font fallbacks, and a second Font class which contains handles to your actual HarfBuzz/FreeType font data and requisite methods.
+				</li>
+				<li>Despite the documentation, <code>LEFontInstance::getScaleFactorX</code> and <code>LEFontInstance::getScaleFactorY</code> are both expected to always return 1.</li>
+				<li>
+					Due to limitations with ICU's bidirectional run iterator, LayoutEx's ParagraphLayout cannot process text runs with hard line breaks (CR, LF, PSEP, LSEP), so the user (You) needs to split their own text into sub-paragraphs and manage
+					hard line breaks themselves.
+				</li>
+				<li>
+					ICU is primarily built around UTF16 encoding. This is actually not an issue with most API interactions due to ICU's UText API, however LayoutEx requires a UTF16 string, so all text run data for text markup must be split by UTF16 code unit
+					index. Internally, this limitation comes from the LayoutEngine, BiDi iterator, and UScript run iterator.
+				</li>
+				<li>Although there is nominally an option for vertical text layout, LayoutEx does not actually support vertical text.</li>
+			</ul>
+			<h4>Part 2 - Font Fallback</h4>
+			<p>
+				No matter how much third party libraries handle glyph rasterization and layout, it seems that there's no standard way to deal with sourcing fonts and handling fallbacks. I haven't attempted to delve into Chromium's source code nor
+				into any Linux desktop environment's font handling, and there aren't many answers on the internet for how you should go about this. What follows is the result of inspecting Chromium and Roblox, and reading font family metadata from
+				<code>HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts</code> on Windows.
+			</p>
+			<p>
+				In my program, metadata regarding font files (TTF/OTF/etc.) must be explicitly defined for a font family using JSON files. A font family is defined a set of font faces of the same design, split by weight (Thin, Light, Bold, Regular, etc.)
+				and style (normal or italic). Every font family has a name (e.g. "Noto Sans" or "Segoe UI"), and this is the name the user will use to refer to a collection of fonts, regardless of the actual files backing them.
+			</p>
+			<p>
+				FIXME: The rest of this
+			</p>
+			<h4>Part 3 - Text Navigation</h4>
+			<p>
+				Thanks to my stack of libraries, rendering text was a fairly straightforward task once I figured out ICU's API. This is where standardized library support ends and my personal research begins.
+				For desktop programs, text can be navigated with either the mouse or the keyboard. Although touch screens are out of scope, much of the same logic applies to them as with navigating by mouse. To start, let's define some basic information
+				that we know about the string thanks to ICU:
+			</p>
+			<img id="highlighted_runs" src="images/text_editing/highlighted_runs.png">
+			<p>
+				For starters, every string is broken into lines, which are in turn broken into multiple Visual Runs. A visual run is a substring which is drawn in a single script, language, and direction with a single font. In this image the string is broken
+				into 3 visual runs, two LTR with Latin script and one RTL with Arabic script. It's important to note that runs on the same line share edges, but in this case the right side of the Arabic run is actually the start, and is adjacent to the left run
+				in memory.
+			</p>
+			<img src="images/text_editing/highlighted_bounds.png">
+			<p>
+				Thanks to the layout engine, we also have the advance of each glyph, which will serve as the basis for calculating the visual cursor position. What's not pictured is that we also have the character index for each glyph,
+				expressed as a code unit index in the original UTF16 string.
+			</p>
+			<h4>Horizontal Character Navigation</h4>
+			<p>
+				Using the left and right arrow keys, the user can advance either towards the start of the string or towards the end. Simple enough, right? But immediately there are several problems to consider:
+			</p>
+			<img src="images/text_editing/arabic_cluster.png">
+			<img src="images/text_editing/zalgo_bounds.png">
+			<p>
+				A code unit is not a codepoint is not a glyph, so how do we know the next point to advance to? In these examples, the arabic glyph represents 4 characters, and the Zalgo text has many glyphs per character. Let's do some simple experiments
+				to figure out what everyone else does:
+			</p>
+			<img src="images/text_editing/study_1_notepad.gif">
+			<h5><i>Figure 1: Notepad</i></h5>
+			<img src="images/text_editing/study_1_chromium.gif">
+			<h5><i>Figure 2: Chromium &lt;textarea&gt;</i></h5>
+			<img src="images/text_editing/study_1_roblox.gif">
+			<h5><i>Figure 3: Roblox</i></h5>
+			<img src="images/text_editing/study_1_vscode.gif">
+			<h5><i>Figure 4: VS Code</i></h5>
+			<p>
+				إلا بسم الله <br />
+				पन्ह पन्ह त्र र्च कृकृ ड्ड न <br />
+
+				H̷̲̝̦̭̮̱̥͙͎͆̆ͅë̶̼̙͇̯̃͐͐͌͌͑̚l̵̠̀l̶͎̬͐̈́̈́̐̇͝͝ó̸̧̤̺͗͆̒̄͠ ̴̗̰̠̰̰̠̜̑̓̀̇̇̚͝ẁ̵̼̹̤̣̫͚̰o̷͕͇̞̩̪͍̙̝̱͑̔͐̒̓̎̂͝͝r̵̟̳̳̯̩̎͐͠͠l̸̮̦̯̭̝̀͆͆͗̌̈̀͌͋̈́d̸̛̳͈͛̿͋́̕͝
+			</p>
+			<br />
+			<h5><i>Original Text</i></h5>
+			<p>
+				All tests were done with Microsoft's Segoe UI font, which renders Latin and Arabic, and falls back to Nirmala UI for the Devanagari script.
+			</p>
+			<p>
+				In all 4 tests, boundaries in the Arabic and Zalgo text behaved similarly: they followed the character breaks in the text, regardless of whether there was a 1:1, 1:many, or many:1 glyph to character ratio. With the Devanagari sample however,
+				VS Code produced a minor deviation. It's pretty difficult to show it in the examples, but the cursor had multiple "stops" in the same position when adjacent to some of the compound glyphs. Let's examine this further:
+			</p>
+			<img src="images/text_editing/deva_segoe.png">
+			<img src="images/text_editing/deva_noto.png">
+			<p>
+				Disclaimer: I don't know how to read the Devanagari script for any language it represents. My best understanding is that the Devanagari script has symbols that decorate some of the characters.
+				Depending on what font you use, these decorators are either rendered as a combination glyph or as separate glyphs. VS Code seems to want to stop at each one of these symbols, while all other text editors seem to treat the full decorated
+				symbol as a single character.
+			</p>
+			<p>
+				Using the ICU CharacterBreakIterator, it seems like ICU treats each decorated symbol as a single character as well as matching all other character breaks seen in the samples, so my conclusion is that VS Code is the odd one out. Therefore,
+				it's generally safe to treat whatever ICU defines as a "character" as the level of granularity for placing the cursor.
+			</p>
+			<p>
+				That's a good start, but wait, how do we determine the cursor position when a glyph represents many characters?
+			</p>
+			<img src="images/text_editing/multi_char_glyph.png">
+			<p>
+				Luckily, it doesn't appear to be that hard. By highlighting one character at a time in notepad and overlaying a screenshot, it becomes evident that all you need to do is uniformly subdivide the glyph by the number of characters, 4 in this case.
+			</p>
+			<img src="images/text_editing/multi_char_arab.png">
+			<img src="images/text_editing/multi_char_liga.png">
+			<img src="images/text_editing/multi_char_notepad.png">
+			<p>
+				Implementing it in my own program matches these expectations, and switching to Noto Sans confirms that this works as expected for ligaturized Latin text as well. With this, I have achieved basic horizontal character navigation. Or have I? Before
+				moving onto the next features, let's confirm one remaining annoying edge case: Soft breaks.
+			</p>
+			<p>
+				<a href="#highlighted_runs">Recalling</a>how ICU breaks lines down into visual runs, there are cases at the edge of 2 runs when the same byte position in the string can represent 2 cursor locations. This can occur either at the boundary
+				of a text direction change, or where a line has been broken by the layout engine and no "hard" linebreak character exists (hence: a soft break). I cover this topic in much more detail later in the article, but for the sake of completeness
+				it is important to experiment and prove that the quirks of soft breaks do <b>not</b> apply to horizontal character navigation.
+			</p>
+			<img src="images/text_editing/horizontal_nav_on_soft_break.gif">
+			<p>
+				Here is the string "Hello world" broken across 2 lines in notepad. When navigating this string by keyboard, the cursor jumps from after the "d" directly to the start of the next line, skipping the end of the line. However, it's possible to place
+				my mouse cursor in this position due to concepts we will look at later.
+			</p>
+			<p>
+				With this, we can finally rest easy knowing that horizontal character navigation has been implemented with sufficient rigor, and with it we've built the foundation for implementing the rest of the navigation controls.
+			</p>
+			<h4>Horizontal Word Navigation</h4>
+			<p>
+				To start, it's important to define what a "word" is in the context of text navigation. ICU provides a WordBreakIterator which can iterate a string by language-aware boundaries, which was the first thing that I tried, but this doesn't produce
+				the correct results for determining cursor jump destinations when navigating with <code>Ctrl+Left</code> and <code>Ctrl+Right</code>. The logic for word jumping is actually much simpler. In all programs that I experimented with, a word boundary
+				is simply where there is a change in the "whitespace-ness" between two adjacent characters, but how each program handles this information is slightly different:
+			</p>
+			<img src="images/text_editing/word_jump_notepad.gif">
+			<p>
+				Notepad is pretty straightforward. A word jump is a move to the next/previous <b>word start</b> which is the point at which the previous character is whitespace and the next character is not.
+			</p>
+			<img src="images/text_editing/word_jump_roblox.gif">
+			<p>
+				Roblox behaves identically to notepad. Note that both respect the non-breaking space (NBSP) in the 4th word.
+			</p>
+			<img src="images/text_editing/word_jump_chromium.gif">
+			<p>
+				Chromium textareas behave nearly identically to notepad and Roblox, however they don't seem to respect non-breaking spaces and treat them like any other whitespace.
+			</p>
+			<img src="images/text_editing/word_jump_vscode.gif">
+			<p>
+				VS Code, always being slightly different than the others, chooses to jump to the other side of a word before moving from end to end. Specifically, you will always move towards the end of the string along the ends of words, and move towards
+				the beginning of the string along the beginnings of words. This is pretty nice behavior for a code editor and lets you get much more precision with highlighting just words while ignoring whitespace. And it also abides by non-breaking spaces.
+			</p>
+			<p>
+				From these samples, I conclude that notepad's simple pattern of jumping from word start to word start is what can be considered a "standard" practice for text editors, and respecting non-breaking whitespace is also preferred. However,
+				VS Code's slightly more elaborate editing rules are definitely a desirable usability improvement that I will consider implementing in the future.
+			</p>
+			<p>
+				Implementing this on top of the character breaking logic is straightforward, but it is worth noting my choice of ICU whitespace function was <code>u_isWhitespace</code> (not to be confused with <code>u_isspace</code>, <code>u_isUWhiteSpace</code>,
+				and <code>u_isJavaSpaceChar</code>),
+				since it respects non-breaking spaces. 
+			</p>
+			<h4>Line Start/End Navigation</h4>
+			<img src="images/text_editing/line_ends.gif">
+			<p>
+				Using the <code>Home</code> and <code>End</code> keys, you can jump to the beginning or end of the current line. These operations have 2 major properties of note:
+			</p>
+			<p>
+				First, unlike character/word iteration, you do not progress towards the start or end of the string. Instead, you will always remain on the current line unless you navigate out by some other means.
+			</p>
+			<p>
+				Second, as shown in the above example on the "Hello World" string, line start/end jumps respect soft breaks, and unlike all of the operations mentioned so far, require interacting with the visual layout model of the text instead of
+				the text data alone. This is the point at which the concept of "Affinity" must also be introduced.
+			</p>
+			<p>
+				FIXME: Get into affinity here.
+			</p>
+			<h4>Text Start/End Navigation</h4>
+			<p>
+				This by far the simplest navigation control. "Start of Text" and "End of Text" are generally mapped to <code>Ctrl+Home</code> and <code>Ctrl+End</code> respectively. These must simply set the cursor position to <code>0</code> for the
+				former, and <code>string.length()</code> for the latter.
+			</p>
+			<h4>Line Navigation</h4>
+			<h4>Cursor Navigation</h4>
+		</div>
+	</body>
+</html>
