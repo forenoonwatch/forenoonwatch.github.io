@@ -28,7 +28,7 @@
 			<h4>Design Goals</h4>
 			<p>
 				In my personal game engine project I want to be able to display and edit text in as many languages as possible, with full mouse, keyboard, IME, and clipboard support for selecting text. In addition, I want to support "rich text" features,
-				such as being able to color, underline, strikeout, embolden, or italicize text, either via parsing in-text markup, or via other sources of highlighting rules like code syntax highlighting. All of this must operate on UTF8 text, and function
+				such as being able to color, underline, strikeout, embolden, or italicize text, either via parsing in-text markup, or via other sources of highlighting rules like code syntax highlighting. All of this must operate on UTF-8 text, and function
 				equivalently on amd64 Windows and Linux systems. It must also be fast and easy to integrate with my game engine's rendering pipeline.
 			</p>
 			<p>
@@ -71,12 +71,13 @@
 					a top level MultiScriptFont with an overridden getSubFont method in order to provide font fallbacks, and a second Font class which contains handles to your actual HarfBuzz/FreeType font data and requisite methods.
 				</li>
 				<li>Despite the documentation, <code>LEFontInstance::getScaleFactorX</code> and <code>LEFontInstance::getScaleFactorY</code> are both expected to always return 1.</li>
+				<li>The layout engine has no method to pass in shaper configuration, so it's not possible to disable optional ligatures</li>
 				<li>
 					Due to limitations with ICU's bidirectional run iterator, LayoutEx's ParagraphLayout cannot process text runs with hard line breaks (CR, LF, PSEP, LSEP), so the user (You) needs to split their own text into sub-paragraphs and manage
 					hard line breaks themselves.
 				</li>
 				<li>
-					ICU is primarily built around UTF16 encoding. This is actually not an issue with most API interactions due to ICU's UText API, however LayoutEx requires a UTF16 string, so all text run data for text markup must be split by UTF16 code unit
+					ICU is primarily built around UTF-16 encoding. This is actually not an issue with most API interactions due to ICU's UText API, however LayoutEx requires a UTF-16 string, so all text run data for text markup must be split by UTF-16 code unit
 					index. Internally, this limitation comes from the LayoutEngine, BiDi iterator, and UScript run iterator.
 				</li>
 				<li>Although there is nominally an option for vertical text layout, LayoutEx does not actually support vertical text.</li>
@@ -89,10 +90,28 @@
 			</p>
 			<p>
 				In my program, metadata regarding font files (TTF/OTF/etc.) must be explicitly defined for a font family using JSON files. A font family is defined a set of font faces of the same design, split by weight (Thin, Light, Bold, Regular, etc.)
-				and style (normal or italic). Every font family has a name (e.g. "Noto Sans" or "Segoe UI"), and this is the name the user will use to refer to a collection of fonts, regardless of the actual files backing them.
+				and style (normal or italic). Every font family has a name (e.g. "Noto Sans" or "Segoe UI"), and this is the name the user will use to refer to a collection of fonts, regardless of the actual files backing them. All JSON descriptor files
+				are loaded when initializing the font cache, although font files themselves are lazily loaded. This global information of what fonts are available is used to stitch together lookup tables in such a way that every family has some valid
+				font face available for every script, even if it may not actually contain any of the requested glyphs.
 			</p>
 			<p>
-				FIXME: The rest of this
+				In order to select a font, ICU's layout engine repeatedly calls <code>LEFontInstance::getSubFont</code> with a substring of a single Unicode script type. Per ICU's example layout program, it's expected that this script code is the primary
+				value used to select a specific face to render glyphs, and in the example it's the only value used. In my JSON descriptors, all font files are explicitly associated with Unicode script IDs, with the exception of "main" font files that will
+				become the default choice for rendering a script if no explicitly defined value exists.
+			</p>
+			<p>
+				However, the script value alone is not sufficient for determining the optimal font to render glyphs with. There are many symbols such as emoji or mathematical symbols which exist as <code>Zyyy</code> (the Common script)
+				or <code>Zinh</code> (the Inherited script) and so count as part of whatever script run they are embedded within, but require reading a different font file from the main script. In order to deal with this, I have to iterate each codepoint manually
+				and query the charmaps of a general fallback font list associated with the family.
+			</p>
+			<h4>Color Glyph Selection</h4>
+			<p>
+				One issue I ran into was detecting whether a glyph was monochrome or full color, my initial idea was to use ICU to detect the <code>Emoji</code> Unicode property of each codepoint, however this would be insufficient, as I found that with Segoe UI
+				the<a href="https://en.wikipedia.org/wiki/Mahjong_Tiles_(Unicode_block)">Mahjong Tile Unicode Block</a>had full color glyphs for codepoints without the <code>Emoji</code> property.
+			</p>
+			<p>
+				Luckily, the solution to this issue was simple, when you call <code>FT_Load_Glyph</code> with <code>FT_LOAD_RENDER | FT_LOAD_COLOR</code> the bitmap's pixel mode is consistently <code>FT_PIXEL_MODE_GRAY</code> for monochrome glyphs, and
+				<code>FT_PIXEL_MODE_BGRA</code> for color glyphs, and FreeType is smart enough not to render monochrome glyphs with all color channels.
 			</p>
 			<h4>Part 3 - Text Navigation</h4>
 			<p>
@@ -109,7 +128,7 @@
 			<img src="images/text_editing/highlighted_bounds.png">
 			<p>
 				Thanks to the layout engine, we also have the advance of each glyph, which will serve as the basis for calculating the visual cursor position. What's not pictured is that we also have the character index for each glyph,
-				expressed as a code unit index in the original UTF16 string.
+				expressed as a code unit index in the original UTF-16 string.
 			</p>
 			<h4>Horizontal Character Navigation</h4>
 			<p>
@@ -118,7 +137,7 @@
 			<img src="images/text_editing/arabic_cluster.png">
 			<img src="images/text_editing/zalgo_bounds.png">
 			<p>
-				A code unit is not a codepoint is not a glyph, so how do we know the next point to advance to? In these examples, the arabic glyph represents 4 characters, and the Zalgo text has many glyphs per character. Let's do some simple experiments
+				A code unit is not a codepoint is not a glyph, so how do we know the next point to advance to? In these examples, the Arabic glyph represents 4 characters, and the Zalgo text has many glyphs per character. Let's do some simple experiments
 				to figure out what everyone else does:
 			</p>
 			<img src="images/text_editing/study_1_notepad.gif">
@@ -174,17 +193,26 @@
 				of a text direction change, or where a line has been broken by the layout engine and no "hard" linebreak character exists (hence: a soft break). I cover this topic in much more detail later in the article, but for the sake of completeness
 				it is important to experiment and prove that the quirks of soft breaks do <b>not</b> apply to horizontal character navigation.
 			</p>
-			<img src="images/text_editing/horizontal_nav_on_soft_break.gif">
+			<img id="softbreak" src="images/text_editing/horizontal_nav_on_soft_break.gif">
+			<h5><i>Figure 1: Notepad</i></h5>
+			<img src="images/text_editing/soft_line_break_chromium.gif">
+			<h5><i>Figure 2: Chromium</i></h5>
+			<img src="images/text_editing/soft_line_break_roblox.gif">
+			<h5><i>Figure 3: Roblox</i></h5>
+			<img src="images/text_editing/soft_line_break_vscode.gif">
+			<h5><i>Figure 4: VS Code</i></h5>
 			<p>
-				Here is the string "Hello world" broken across 2 lines in notepad. When navigating this string by keyboard, the cursor jumps from after the "d" directly to the start of the next line, skipping the end of the line. However, it's possible to place
-				my mouse cursor in this position due to concepts we will look at later.
+				Here is the string "Hello World" broken across 2 lines in notepad. When navigating this string by keyboard, the cursor jumps from after the "d" directly to the start of the next line, skipping the end of the line. However, it's possible to place
+				my mouse cursor in this position due to concepts we will look at later. Chromium and VS Code share this property as well, with minor differences. Roblox behaves differently, however upon closer inspection of the <code>CursorPosition</code> property
+				on the Roblox TextBox, it becomes evident that Roblox actually injects a newline for softbreaks. This is an interesting finding, but unusual in the context of the other programs, and in my own program would cause complex interdependencies between
+				the layout system and the string data, especially once text modification comes into play.
 			</p>
 			<p>
 				With this, we can finally rest easy knowing that horizontal character navigation has been implemented with sufficient rigor, and with it we've built the foundation for implementing the rest of the navigation controls.
 			</p>
 			<h4>Horizontal Word Navigation</h4>
 			<p>
-				To start, it's important to define what a "word" is in the context of text navigation. ICU provides a WordBreakIterator which can iterate a string by language-aware boundaries, which was the first thing that I tried, but this doesn't produce
+				To start, it's important to define what a "word" is in the context of text navigation. The first thing I tried was ICU's WordBreakIterator which can iterate a string by language-aware boundaries, but this doesn't produce
 				the correct results for determining cursor jump destinations when navigating with <code>Ctrl+Left</code> and <code>Ctrl+Right</code>. The logic for word jumping is actually much simpler. In all programs that I experimented with, a word boundary
 				is simply where there is a change in the "whitespace-ness" between two adjacent characters, but how each program handles this information is slightly different:
 			</p>
@@ -226,8 +254,85 @@
 				Second, as shown in the above example on the "Hello World" string, line start/end jumps respect soft breaks, and unlike all of the operations mentioned so far, require interacting with the visual layout model of the text instead of
 				the text data alone. This is the point at which the concept of "Affinity" must also be introduced.
 			</p>
+			<h4>Affinity</h4>
 			<p>
-				FIXME: Get into affinity here.
+				When you encounter a case where a byte position represents multiple cursor positions<a href="#softbreak">(covered here),</a>the solution to disambiguating them is to store an extra bit of information generally referred to as the "affinity".
+				Naturally each of the 2 possible values represent one of the possible positions of the cursor, but let's explore how affinity behaves in the reference editors to determine if there is a meaningful rule for what each value should
+				represent.
+			</p>
+			<img src="images/text_editing/horizontal_nav_on_soft_break.gif">
+			<img src="images/text_editing/bidi_affinity_notepad.gif">
+			<h5><i>Notepad</i></h5>
+			<img src="images/text_editing/soft_line_break_chromium.gif">
+			<img src="images/text_editing/bidi_affinity_chromium.gif">
+			<h5><i>Chromium</i></h5>
+			<img src="images/text_editing/soft_line_break_roblox.gif">
+			<img src="images/text_editing/bidi_affinity_roblox.gif">
+			<h5><i>Roblox</i></h5>
+			<img src="images/text_editing/soft_line_break_vscode.gif">
+			<img src="images/text_editing/bidi_affinity_vscode.gif">
+			<h5><i>VS Code</i></h5>
+			<p>
+				Recalling the soft line breaks, with the exception of Roblox which injects a newline character, all other editors have a default assumption about what cursor position a certain character index represents when unaffected by affinity. Similarly,
+				all editors including Roblox have an affinity bias for the boundaries of direction changes. Let's see if the biases show a pattern:
+			</p>
+			<table>
+				<tr>
+					<th>Editor</th>
+					<th>Line End Default</th>
+					<th>LTR-RTL Default</th>
+					<th>RTL-LTR Default</th>
+					<th>LTR-RTL Mouse</th>
+					<th>RTL-LTR Mouse</th>
+				</tr>
+				<tr>
+					<td>Notepad</td>
+					<td>Next Run Start</td>
+					<td>Curr Run End</td>
+					<td>Curr Run End</td>
+					<td>Both</td>
+					<td>Curr Run Start/Prev Run End</td>
+				</tr>
+				<tr>
+					<td>Chromium</td>
+					<td>Next Run Start</td>
+					<td>Curr Run End</td>
+					<td>Next Run Start</td>
+					<td>Curr Run End</td>
+					<td>Next Run Start</td>
+				</tr>
+				<tr>
+					<td>Roblox</td>
+					<td>N/A</td>
+					<td>Curr Run End</td>
+					<td>Next Run Start</td>
+					<td>Both</td>
+					<td>Both</td>
+				</tr>
+				<tr>
+					<td>VS Code</td>
+					<td>Curr Run End</td>
+					<td>Curr Run End</td>
+					<td>Curr Run End</td>
+					<td>Curr Run End</td>
+					<td>Curr Run Start+1/Prev Run Start+1</td>
+				</tr>
+			</table>
+			<p>
+				From this study we can conclude that there is no standard pattern for default affinities across editors, and generally little consistency with behavior within an editor. For all editors with the exception of Chromium there was a consistent
+				policy for handling directionality boundaries, but these did not necessarily correspond with the policy for handling a line break. The mouse results will be covered in more detail in the cursor navigation section, but they show little
+				information for selecting a default policy for affinity.
+			</p>
+			<p>
+				Since there is no default behavior, for my implementation I will choose to consistently have my natural affinity be the same as Chromium's. Although it would be convenient to have consistency in default affinity behavior, I find that Chromium and
+				Roblox's variation of the LTR-RTL and RTL-LTR boundary policy produces the most readable interaction, as notepad and VS Code create a situation where two natural cursor positions are located at the same visual position.
+			</p>
+			<p>
+				My affinity bit will encode <code>0</code> as meaning "use default affinity" and <code>1</code> to mean "use opposite affinity". This is a minor choice, as having an inconsistent affinity policy means I would need to query the visual context
+				of the cursor position in order to find its location, but it means that keyboard operations can reset the affinity to default easily, which is the behavior experienced in all tested editors.
+			</p>
+			<p>
+				FIXME: Note on how Home/End affects RTL runs here.
 			</p>
 			<h4>Text Start/End Navigation</h4>
 			<p>
@@ -235,7 +340,12 @@
 				former, and <code>string.length()</code> for the latter.
 			</p>
 			<h4>Line Navigation</h4>
-			<h4>Cursor Navigation</h4>
+			<p>
+				Navigating vertically between lines can be classified as a visual, affinity-aware operation, meaning that it requires knowledge of the visual text layout, and that it must set the affinity of the cursor for fully correct behavior.
+			</p>
+			<h4>Mouse Navigation</h4>
+			<h4>Part 4 - Text Selection</h4>
+			<h4>Part 5 - Text Modification</h4>
 		</div>
 	</body>
 </html>
