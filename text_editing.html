@@ -81,6 +81,10 @@
 					index. Internally, this limitation comes from the LayoutEngine, BiDi iterator, and UScript run iterator.
 				</li>
 				<li>Although there is nominally an option for vertical text layout, LayoutEx does not actually support vertical text.</li>
+				<li>
+					In the ICU example, the height of a line in pixels was found as the the <code>max(ascender - descender)</code> across all lines, however in most programs, line heights in rich text vary, and are calculated as
+					<code>max(ascender - descender)</code> for the visual runs of each line.
+				</li>
 			</ul>
 			<h4>Part 2 - Font Fallback</h4>
 			<p>
@@ -242,19 +246,10 @@
 				and <code>u_isJavaSpaceChar</code>),
 				since it respects non-breaking spaces. 
 			</p>
-			<h4>Line Start/End Navigation</h4>
-			<img src="images/text_editing/line_ends.gif">
-			<p>
-				Using the <code>Home</code> and <code>End</code> keys, you can jump to the beginning or end of the current line. These operations have 2 major properties of note:
-			</p>
-			<p>
-				First, unlike character/word iteration, you do not progress towards the start or end of the string. Instead, you will always remain on the current line unless you navigate out by some other means.
-			</p>
-			<p>
-				Second, as shown in the above example on the "Hello World" string, line start/end jumps respect soft breaks, and unlike all of the operations mentioned so far, require interacting with the visual layout model of the text instead of
-				the text data alone. This is the point at which the concept of "Affinity" must also be introduced.
-			</p>
 			<h4>Affinity</h4>
+			<p>
+				Before moving onto the other navigation types it is important to go over affinity in further detail.
+			</p>
 			<p>
 				When you encounter a case where a byte position represents multiple cursor positions<a href="#softbreak">(covered here),</a>the solution to disambiguating them is to store an extra bit of information generally referred to as the "affinity".
 				Naturally each of the 2 possible values represent one of the possible positions of the cursor, but let's explore how affinity behaves in the reference editors to determine if there is a meaningful rule for what each value should
@@ -331,8 +326,20 @@
 				My affinity bit will encode <code>0</code> as meaning "use default affinity" and <code>1</code> to mean "use opposite affinity". This is a minor choice, as having an inconsistent affinity policy means I would need to query the visual context
 				of the cursor position in order to find its location, but it means that keyboard operations can reset the affinity to default easily, which is the behavior experienced in all tested editors.
 			</p>
+			<h4>Line Start/End Navigation</h4>
+			<img src="images/text_editing/line_ends.gif">
 			<p>
-				FIXME: Note on how Home/End affects RTL runs here.
+				Using the <code>Home</code> and <code>End</code> keys, you can jump to the beginning or end of the current line. These operations have 2 major properties of note:
+			</p>
+			<p>
+				First, unlike character/word iteration, you do not progress towards the start or end of the string. Instead, you will always remain on the current line unless you navigate out by some other means.
+			</p>
+			<p>
+				Second, as shown in the above example on the "Hello World" string, line start/end jumps respect soft breaks, and unlike all of the operations mentioned so far, require interacting with the visual layout model of the text instead of
+				the text data alone. This is the point at which the concept of "Affinity" must also be introduced.
+			</p>
+			<p>
+				Third, it's important to be clear that <code>Home</code> and <code>End</code> are specifically line <b>start</b> and <b>end</b>, not line left and right, so in a mixed-direction line, the start/end may end up in the middle of the string.
 			</p>
 			<h4>Text Start/End Navigation</h4>
 			<p>
@@ -341,11 +348,96 @@
 			</p>
 			<h4>Line Navigation</h4>
 			<p>
-				Navigating vertically between lines can be classified as a visual, affinity-aware operation, meaning that it requires knowledge of the visual text layout, and that it must set the affinity of the cursor for fully correct behavior.
+				In most implementations, vertical line navigation is an operation based on the visual cursor location, as opposed to its location in the string.
 			</p>
 			<h4>Mouse Navigation</h4>
+			<p>
+				Mouse navigation, like line navigation, is a query against the layout information of the text, with the goal being to find the closest cursor position to the mouse. This is done pretty much exactly like the line navigation query,
+				except that initially the line to test is not known, and must be found first. The entire height of the line (ascender - descender) encompasses the vertical bounding axis of the line, and individual bounding boxes of glyphs do not matter.
+				The main thing to keep in mind with mouse positioning is its relationship to affinity, the cursor should be set so that its index and affinity bring it as close as possible to the mouse position, otherwise you get weird artifacts like this:
+			</p>
+			<img src="images/text_editing/mouse_select_artifact.gif">
 			<h4>Part 4 - Text Selection</h4>
+			<p>
+				Text selection, for the most part, is an extension of cursor selection mechanics. However, instead of storing the cursor position alone, we now store a second cursor position and affinity for the selection start. Unlike the cursor position,
+				which is assumed to always be valid as long as the text box is focused, text boxes are not always in selection mode, so an additional piece of information must be stored with the selection start to signify whether it's valid.
+			</p>
+			<p>
+				The main complication with text selection is determining what interval the cursor position and selection start represent. This is particularly relevant with bidirectional text, where the visual interval between <code>SelectionStart</code> and
+				<code>CursorPosition</code> does not equal the memory interval. Let's take a look at how our sample programs handle this scenario:
+			</p>
 			<h4>Part 5 - Text Modification</h4>
+			<h4>Deletion</h4>
+			<p>
+				Even the most basic text editors support the removal of substrings from within the text, both of single characters and of longer substrings. For keyboard-based deletion operations such as character and word deletion, there are generally
+				two directions of deletion: backwards (before the cursor, towards the start of the string) via the <code>Backspace</code> key, and forwards (after the cursor, towards the end of the string) via the <code>Delete</code> key.
+			</p>
+			<h4>Character Deletion</h4>
+			<p>
+				On the surface, it would seem that the implementation of character deletion would simply be to delete the preceding/following characters at the cursor position, depending on the key pressed. However, the sampled text editors show
+				quite a variation in deletion rules:
+			</p>
+			<img src="images/text_editing/char_delete_notepad.gif">
+			<h5><i>Notepad</i></h5>
+			<img src="images/text_editing/char_delete_chromium.gif">
+			<h5><i>Chromium</i></h5>
+			<img src="images/text_editing/char_delete_roblox.gif">
+			<h5><i>Roblox</i></h5>
+			<img src="images/text_editing/char_delete_vscode.gif">
+			<h5><i>VS Code</i></h5>
+			<p>
+				There are 2 striking on display here: Firstly, deletion operations <b>may</b> be more granular than per-character, the previous minimum granularity assumed for text operations, and for multi-codepoint characters seemingly operate on codepoints.
+				Second, the rules are often different depending on the direction of approach. When performing a backwards deletion (<code>Backspace</code>) editors <b>sometimes</b> delete per-codepoint, and when performing a forward deletion editors
+				<b>sometimes</b> delete per-character.
+			</p>
+			<p>
+				As shown with the difference between the Zalgo and Devanagari texts, some editors handle deletion on multi-codepoint characters contextually based on the kind of codepoints encountered. Based on these tests and additional (not pictured) tests
+				with Emoji containing skin color modifiers, I have concluded the following about what an editor <b>may</b> do:
+			</p>
+			<ul>
+				<li>
+					The deletion operation is based entirely around the codepoint adjacent to the cursor in the direction of deletion. A backwards deletion will choose what to delete based on the previous codepoint to <code>CursorPosition</code> and a forward
+					deletion will make its decision based on the value at <code>CursorPosition</code>
+				</li>
+				<li>
+					If the codepoint is a Combining Character or Emoji (found by querying the codepoint's properties in ICU), the entire character must be deleted, otherwise only this codepoint may be deleted.
+				</li>
+			</ul>
+			<p>
+				This behavior will likely result in functionality akin to most regular text editors, however it's important to consider the additional complexity of manually classifying deletable sequences of codepoints and the ramifications of failure.
+				Looking at the official<a href="https://www.unicode.org/reports/tr44/#Property_Index">Unicode Property Index</a>it's pretty clear that there are a lot of character classes, and classifying what is a deletable unit is not an easy task.
+				It's also important to remember that the best tool we have for this, the ICU CharacterBreakIterator, classifies all of the tested sequences (Deva clusters, Emoji with modifiers, and Latin text with combining characters) as single characters.
+			</p>
+			<p>
+				While it's not quite as jarring as a poorly placed cursor, attempting to hand-roll the rules for deletion may end with worse overall correctness than just performing deletions using the CharacterBreakIterator, whose main fault in these examples
+				is being a bit more overzealous on deleting compound characters in the backwards deletion case. Therefore, although testing shows that many editors feature sub-character deletion, it is probably safest to stay with deleting characters as
+				defined by ICU's CharacterBreakIterator.
+			</p>
+			<h4>Word Deletion</h4>
+			<p>
+				Word Deletion is a direct extension of the word iteration logic defined for Horizontal Word Navigation. For backwards/forwards word deletion, invoked by pressing <code>Ctrl+Backspace</code> and <code>Ctrl+Delete</code>, the text interval that
+				should be deleted is the interval from the current cursor position to the previous/next word boundary respectively.
+			</p>
+			<h4>Line Deletion</h4>
+			<p>
+				When pressing either <code>Ctrl+Shift+Backspace</code> or <code>Ctrl+Shift+Delete</code>, the user can execute a line deletion, which will delete the text interval from the current cursor position to either the beginning or end of the line.
+				This behavior is soft-break aware, and derives from the logic used to implement Line Start/End Navigation.
+			</p>
+			<h4>Selection Deletion</h4>
+			<p>
+				When either <code>Backspace</code> or <code>Delete</code> is pressed while the text area is in selection mode, the currently selected text will be deleted. The main thing to be aware of with this operation is that it causes the text
+				area to exit selection mode, and the cursor position must be moved to <code>min(SelectionStart, CursorPosition)</code> in order to remain visually in the spot where the deleted text interval used to be.
+			</p>
+			<h4>Addition</h4>
+			<p>
+				The addition of substrings is much simpler than deletion. In all cases, the target characters must simply be inserted at the cursor position in the string. When the editor is in selection mode, a Selection Deletion operation must be performed
+				and the characters will be inserted afterwards at the resulting cursor position.
+			</p>
+			<p>
+				There are 2 main sources of input: the character input event and the clipboard. The character input event is provided by the OS and allows you to receive a typed codepoint as the user expects it, which both allows you to cover modifiers such as
+				<code>Shift+Letter</code> and things like Alt codes and IME inputs. My implementation uses<a href="https://www.glfw.org/">GLFW</a>as a windowing solution, and I listen to the character input event via its key callback. Text is inserted
+				from the clipboard when the user presses <code>Ctrl+V</code>. In this case, the contents of the clipboard are simply inserted as a character would be.
+			</p>
 		</div>
 	</body>
 </html>
