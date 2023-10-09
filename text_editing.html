@@ -348,7 +348,33 @@
 			</p>
 			<h4>Line Navigation</h4>
 			<p>
-				In most implementations, vertical line navigation is an operation based on the visual cursor location, as opposed to its location in the string.
+				Vertical line navigation involves finding a cursor index in an adjacent line that matches closest with the current horizontal location of the cursor. The implementation of this operation has some nuance in order to provide behavior
+				which operates close to the user's expectations:
+			</p>
+			<img src="images/text_editing/lm_test_notepad.gif">
+			<h5><i>Notepad</i></h5>
+			<img src="images/text_editing/lm_test_chromium.gif">
+			<h5><i>Chromium</i></h5>
+			<img src="images/text_editing/lm_test_roblox.gif">
+			<h5><i>Roblox</i></h5>
+			<img src="images/text_editing/lm_test_vscode.gif">
+			<h5><i>VS Code</i></h5>
+			<p>
+				In all editors except VS Code (ever the outlier), close examination of the behavior when changing lines shows that the editors generally select the closest character break position by pixel position, whereas VS Code simply persists the
+				character index in the line.
+			</p>
+			<p>
+				While Roblox and Notepad generally function the same in this regard, Chromium also has the additional feature that it seems to cache the horizontal pixel position from the first time you press up or down, meaning your precise position
+				is preserved when moving from the first <code>l</code> line to the second through the <code>M</code> line.
+			</p>
+			<p>
+				Through this analysis I believe that the best technique to use is repositioning the cursor by closest pixel position. While in my own editor I have not implemented caching the pixel position for vertical line movement, I do believe
+				this feature makes Chromium the best in this regard, as it leads to the most precise repositioning of the cursor among varying lines.
+			</p>
+			<p>
+				It's important to note that VS Code's navigation by character index is not without merit. Of the 4 samples, VS Code is the only editor designed primarily to edit source code, for which character alignment is much more important, and
+				jumping between lines by character index is often much more productive when editing code. This however creates large discrepancies in the actual cursor position as you move, which are exacerbated further when the text is not left-aligned,
+				which is not an issue for VS Code but is an issue for more generic text areas.
 			</p>
 			<h4>Mouse Navigation</h4>
 			<p>
@@ -365,6 +391,16 @@
 			<p>
 				The main complication with text selection is determining what interval the cursor position and selection start represent. This is particularly relevant with bidirectional text, where the visual interval between <code>SelectionStart</code> and
 				<code>CursorPosition</code> does not equal the memory interval. Let's take a look at how our sample programs handle this scenario:
+			</p>
+			<img src="images/text_editing/text_select_notepad.png">
+			<img src="images/text_editing/text_select_chromium.png">
+			<img src="images/text_editing/text_select_roblox.png">
+			<img src="images/text_editing/text_select_vscode.png">
+			<p>
+				Here, the images don't even need labeling as the results are exactly the same: selections across bidirectional text are visually disjoint, but contiguous in memory. These 4 editors are simply my test samples, and certainly editors that
+				choose to highlight contiguously do exist, but visually separated selections are more common. This is because the implementation of text operations based on this selection span is much simpler than the alternative. In order to implement
+				visually contiguous selection, the memory covered by this selection must be stored as a list of intervals based on the visual runs generated from the text, which involves more calculations and memory usage, all for a solution that is not
+				necessarily any more correct than a visually disjoint selection. Thus, for a generic editor, a disjoint selection is more than sufficient and potentially the best choice.
 			</p>
 			<h4>Part 5 - Text Modification</h4>
 			<h4>Deletion</h4>
